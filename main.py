@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 import requests, os
 
@@ -8,7 +8,11 @@ CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 @app.route("/", methods=["GET"])
 def home():
-    return send_file("fabusse-admin-v2.html")
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "fabusse-admin-v2.html")
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return Response(content, mimetype="text/html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
