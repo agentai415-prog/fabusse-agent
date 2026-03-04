@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests, os
+import requests
+import os
 
 app = Flask(__name__)
 CORS(app, origins="*")
@@ -16,8 +17,17 @@ def chat():
         data = request.get_json()
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": "claude-sonnet-4-6", "max_tokens": 1024, "system": data.get("system",""), "messages": data.get("messages",[])},
+            headers={
+                "x-api-key": CLAUDE_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+            },
+            json={
+                "model": "claude-sonnet-4-6",
+                "max_tokens": 1024,
+                "system": data.get("system", ""),
+                "messages": data.get("messages", [])
+            },
             timeout=30
         )
         return jsonify(r.json()), r.status_code
@@ -26,22 +36,3 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-```
-اضغط **Commit changes**
-
----
-
-**الملف الثاني** — اسمه: `requirements.txt`
-```
-flask==3.0.0
-flask-cors==4.0.0
-requests==2.31.0
-gunicorn==21.2.0
-```
-اضغط **Commit changes**
-
----
-
-**الملف الثالث** — اسمه: `Procfile` (بدون امتداد)
-```
-web: gunicorn main:app --bind 0.0.0.0:$PORT
