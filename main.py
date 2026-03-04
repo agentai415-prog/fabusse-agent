@@ -8,7 +8,7 @@ CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 @app.route("/", methods=["GET"])
 def home():
-    return send_file("dashboard.html")
+    return send_file("fabusse-admin-v2.html")
 
 @app.route("/chat", methods=["POST"])
 def chat():
