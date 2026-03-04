@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
-import requests, os
+import requests, os, glob
 
 app = Flask(__name__)
 CORS(app, origins="*")
@@ -8,11 +8,12 @@ CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 @app.route("/", methods=["GET"])
 def home():
-    base = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base, "fabusse-admin-v2.html")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-    return Response(content, mimetype="text/html")
+    # Try to find any HTML file
+    files = glob.glob("/app/*.html")
+    if files:
+        with open(files[0], "r", encoding="utf-8") as f:
+            return Response(f.read(), mimetype="text/html")
+    return jsonify({"error": "no html found", "files": os.listdir("/app")})
 
 @app.route("/chat", methods=["POST"])
 def chat():
