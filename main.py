@@ -1,10 +1,22 @@
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
-import requests, os
+import requests, os, json
 
 app = Flask(__name__)
 CORS(app, origins="*")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY", "")
+
+# In-memory model store — persists while server is running
+MODELS_STORE = {"models": [
+  {"id":1,"name":"DAMY","country":"Bulgaria","cls":"Class A","gender":"women","from":"2026-01-18","until":"2026-04-13","active":True},
+  {"id":2,"name":"SUZANA","country":"Italy","cls":"Class A","gender":"women","from":"2026-01-18","until":"2026-04-13","active":True},
+  {"id":3,"name":"LIDIYA","country":"Italy","cls":"Premium Class","gender":"women","from":"2026-01-15","until":"2026-04-14","active":True},
+  {"id":4,"name":"DANIELA","country":"France","cls":"Premium Class","gender":"women","from":"2026-01-22","until":"2026-03-09","active":True},
+  {"id":5,"name":"THEA","country":"Italy","cls":"Class A","gender":"women","from":"2026-01-11","until":"2026-03-07","active":True},
+  {"id":6,"name":"CECILIA","country":"Italy","cls":"Class A","gender":"women","from":"2026-01-11","until":"2026-03-06","active":False},
+  {"id":7,"name":"JAMILA","country":"Philippines","cls":"Class A","gender":"women","from":None,"until":None,"active":True},
+  {"id":8,"name":"LAURA","country":"Germany","cls":"Class A","gender":"women","from":"2026-03-01","until":"2026-05-01","active":False},
+]}
 
 DASHBOARD = '''<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -588,7 +600,15 @@ function closeSidebar(){document.getElementById('sidebar').classList.remove('ope
 // ══════════════════════
 // RENDER ALL
 // ══════════════════════
-function renderAll(){renderDash();renderModels();renderBookings();updateBadge();loadApiKey();}
+function renderAll(){
+  // fetch models from server first
+  fetch('/models').then(r=>r.json()).then(data=>{
+    if(data.models) MODELS = data.models;
+    renderDash();renderModels();renderBookings();updateBadge();loadApiKey();
+  }).catch(()=>{
+    renderDash();renderModels();renderBookings();updateBadge();loadApiKey();
+  });
+}
 function saveApiKey(){
   const k=document.getElementById('claude-api-key').value.trim();
   if(k) localStorage.setItem('fbm_key',k);
@@ -650,14 +670,14 @@ function filterModels(v){renderModels(v);}
 function toggleM(id){
   const m=MODELS.find(x=>x.id===id);if(!m)return;
   m.active=!m.active;
-  renderModels();renderDash();updateBadge();
+  renderModels();renderDash();updateBadge();syncModels();
   toast(`${m.name} — ${m.active?'تم التفعيل ✓':'تم التعطيل'}`);
 }
 function delModel(id){
   const m=MODELS.find(x=>x.id===id);if(!m)return;
   if(!confirm(`حذف ${m.name}؟`))return;
   MODELS=MODELS.filter(x=>x.id!==id);
-  renderModels();renderDash();
+  renderModels();renderDash();syncModels();
   toast(`تم حذف ${m.name}`);
 }
 function openAddModel(){
@@ -694,7 +714,7 @@ function saveModel(){
     MODELS.push({id:nextId++,name,country,cls:document.getElementById('m-cls').value,gender:document.getElementById('m-gender').value,from:document.getElementById('m-from').value||null,until:document.getElementById('m-until').value||null,active:true});
     toast(`تمت إضافة ${name} ✓`);
   }
-  closeModal('model-modal');renderModels();renderDash();
+  closeModal('model-modal');renderModels();renderDash();syncModels();
 }
 
 // ══════════════════════
@@ -889,6 +909,11 @@ function sendQ(msg){document.getElementById('chat-inp').value=msg;sendMsg();}
 // ══════════════════════
 // HELPERS
 // ══════════════════════
+
+function syncModels(){
+  fetch('/models',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({models:MODELS})})
+  .catch(e=>console.log('sync error',e));
+}
 function genId(){
   const n=new Date();
   return`FBM-${n.getFullYear()}${String(n.getMonth()+1).padStart(2,'0')}${String(n.getDate()).padStart(2,'0')}-${Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4).padEnd(4,'0')}`;
@@ -921,14 +946,48 @@ document.querySelectorAll('.modal-bg').forEach(m=>{
 def home():
     return Response(DASHBOARD, mimetype="text/html")
 
+@app.route("/models", methods=["GET"])
+def get_models():
+    return jsonify(MODELS_STORE)
+
+@app.route("/models", methods=["POST"])
+def set_models():
+    global MODELS_STORE
+    data = request.get_json()
+    if data and "models" in data:
+        MODELS_STORE["models"] = data["models"]
+    return jsonify({"ok": True})
+
+def build_active_models_list():
+    active = [m for m in MODELS_STORE["models"] if m.get("active")]
+    lines = []
+    for m in active:
+        until = f" — available until {m['until']}" if m.get("until") else ""
+        lines.append(f"- {m['name']} ({m['country']}) — {m['cls']}{until}")
+    return "\n".join(lines) if lines else "No models currently available"
+
 @app.route("/chat", methods=["POST"])
 def chat():
     try:
         data = request.get_json()
+        messages = data.get("messages", [])
+        system_prompt = data.get("system", "")
+
+        # Inject live models into system prompt
+        active_list = build_active_models_list()
+        system_prompt = system_prompt.replace(
+            "MODELS CURRENTLY IN KUWAIT (ACTIVE ONLY):",
+            "MODELS CURRENTLY IN KUWAIT (ACTIVE ONLY):\n" + active_list + "\n#END_MODELS#"
+        )
+        # Clean up any old model list that came from client
+        if "#END_MODELS#" in system_prompt:
+            parts = system_prompt.split("#END_MODELS#")
+            system_prompt = parts[0] + parts[1] if len(parts) > 1 else parts[0]
+
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={"x-api-key": CLAUDE_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": "claude-sonnet-4-6", "max_tokens": 1024, "system": data.get("system",""), "messages": data.get("messages",[])},
+            json={"model": "claude-sonnet-4-6", "max_tokens": 1024, "system": system_prompt, "messages": messages},
             timeout=30
         )
         return jsonify(r.json()), r.status_code
